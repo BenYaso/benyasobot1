@@ -18,15 +18,18 @@ class Moderation(commands.Cog):
     async def ping(self, interaction: discord.Interaction):
         await interaction.response.send_message(f"Pong! Gecikme: {round(self.bot.latency * 1000)} ms")
 
-    @app_commands.command(name="sil", description="Mesajları temizler. (Yetkili)")
-    @app_commands.describe(miktar="Silinecek mesaj sayısı")
-    async def sil(self, interaction: discord.Interaction, miktar: int):
-        if not interaction.user.guild_permissions.manage_messages:
-            await interaction.response.send_message("❌ Bu komutu kullanmak için mesajları yönetme yetkin olmalı.", ephemeral=True)
-            return
+@app_commands.command(name="sil", description="Mesajları temizler. (Yetkili)")
+@app_commands.describe(miktar="Silinecek mesaj sayısı")
+async def sil(self, interaction: discord.Interaction, miktar: int):
+    if not interaction.user.guild_permissions.manage_messages:
+        await interaction.response.send_message("❌ Bu komutu kullanmak için mesajları yönetme yetkin olmalı.", ephemeral=True)
+        return
 
-        deleted = await interaction.channel.purge(limit=miktar)
-        await interaction.response.send_message(f"🧹 {len(deleted)} mesaj silindi.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)  # Hemen cevap verildiğini bildir
+
+    deleted = await interaction.channel.purge(limit=miktar)
+
+    await interaction.followup.send(f"🧹 {len(deleted)} mesaj silindi.", ephemeral=True)
 
     @app_commands.command(name="oylama", description="Oylama başlatır. (Yetkili)")
     @app_commands.describe(soru="Oylama sorusu ve şıkları, aralarında virgül ile")
