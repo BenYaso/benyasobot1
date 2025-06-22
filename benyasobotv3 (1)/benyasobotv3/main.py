@@ -27,10 +27,15 @@ intents.voice_states = True  # Ses durumu izleme izni
 bot = commands.Bot(command_prefix="!", intents=intents, application_id=1385314588018475221)
 
 async def load_all_cogs():
-    for filename in os.listdir("./"):
-        if filename.endswith(".py") and filename != "main.py":
+    # ./cogs klasöründeki tüm cogs'u yükle
+    cogs_folder = "./cogs"
+    if not os.path.exists(cogs_folder):
+        print("cogs klasörü bulunamadı.")
+        return
+    for filename in os.listdir(cogs_folder):
+        if filename.endswith(".py"):
             try:
-                await bot.load_extension(filename[:-3])
+                await bot.load_extension(f"cogs.{filename[:-3]}")
                 print(f"{filename} yüklendi.")
             except Exception as e:
                 print(f"{filename} yüklenirken hata: {e}")
