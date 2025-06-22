@@ -4,175 +4,149 @@ from discord import app_commands
 import yt_dlp
 import asyncio
 
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# Yt-dlp ayarları
-ytdl_format_options = {
-    'format': 'bestaudio/best',
-    'noplaylist': True,
-    'quiet': True,
-    'default_search': 'auto',
-    'source_address': '0.0.0.0'
-}
-ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
-
-ffmpeg_options = {
-    'options': '-vn'
-}
-
-# Oynatma kuyruğu, kullanıcı sesi için basit dict
-queues = {}
-
-# Ses durumu ve kontrol için bir view (butonlar)
-class MusicControls(discord.ui.View):
-    def __init__(self, player, *, timeout=180):
-        super().__init__(timeout=timeout)
-        self.player = player
-        self.paused = False
-
-    @discord.ui.button(label="Durdur", style=discord.ButtonStyle.red)
-    async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.voice is None or interaction.user.voice.channel != self.player.voice.channel:
-            await interaction.response.send_message("Sesli kanalda değilsin!", ephemeral=True)
-            return
-        self.player.voice.stop()
-        await interaction.message.edit(content="▶️ Şarkı durduruldu.", view=None)
-        self.stop()  # View'u kapat
-
-    @discord.ui.button(label="Devam Et", style=discord.ButtonStyle.green)
-    async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.player.voice.is_playing():
-            await interaction.response.send_message("Zaten oynatılıyor.", ephemeral=True)
-            return
-        self.player.voice.resume()
-        await interaction.response.send_message("▶️ Oynatma devam ediyor.", ephemeral=True)
-
-    @discord.ui.button(label="Atla", style=discord.ButtonStyle.gray)
-    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.voice is None or interaction.user.voice.channel != self.player.voice.channel:
-            await interaction.response.send_message("Sesli kanalda değilsin!", ephemeral=True)
-            return
-        self.player.voice.stop()
-        await interaction.response.send_message("⏭ Şarkı atlandı.", ephemeral=True)
-
-    @discord.ui.button(label="Tekrarla", style=discord.ButtonStyle.blurple)
-    async def repeat(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.voice is None or interaction.user.voice.channel != self.player.voice.channel:
-            await interaction.response.send_message("Sesli kanalda değilsin!", ephemeral=True)
-            return
-        # Tekrar çalmak için aynı kaynağı yeniden oynat
-        self.player.voice.stop()
-        self.player.play_current()
-        await interaction.response.send_message("🔁 Şarkı tekrar çalınıyor.", ephemeral=True)
-
-class MusicPlayer:
-    def __init__(self, bot, guild_id):
+class Music(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
-        self.guild_id = guild_id
-        self.queue = []
-        self.voice = None
-        self.current = None
+        self.voice_clients = {}
 
-    async def join(self, channel):
-        if self.voice and self.voice.is_connected():
-            if self.voice.channel.id == channel.id:
-                return
-            await self.voice.move_to(channel)
-        else:
-            self.voice = await channel.connect()
+        self.YTDL_OPTIONS = {
+            'format': 'bestaudio/best',
+            'noplaylist': True,
+            'quiet': True,
+            'extract_flat': 'in_playlist',
+            'default_search': 'ytsearch5:',
+            'source_address': '0.0.0.0'  # ipv4
+        }
 
-    async def leave(self):
-        if self.voice and self.voice.is_connected():
-            await self.voice.disconnect()
-            self.voice = None
+        self.FFMPEG_OPTIONS = {
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': '-vn'
+        }
 
-    def play_current(self):
-        if not self.current:
+        self.ydl = yt_dlp.YoutubeDL(self.YTDL_OPTIONS)
+        self.now_playing = {}
+
+    async def search_song(self, query):
+        info = self.ydl.extract_info(query, download=False)
+        if 'entries' in info:
+            return info['entries'][0]
+        return info
+
+    @app_commands.command(name="katıl", description="Ses kanalına katılır.")
+    async def join(self, interaction: discord.Interaction):
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("🎧 Ses kanalında değilsin.", ephemeral=True)
             return
-        source = discord.FFmpegPCMAudio(self.current['url'], **ffmpeg_options)
-        self.voice.play(source, after=lambda e: self.bot.loop.create_task(self.play_next()))
 
-    async def play_next(self):
-        if self.queue:
-            self.current = self.queue.pop(0)
-            source = discord.FFmpegPCMAudio(self.current['url'], **ffmpeg_options)
-            self.voice.play(source, after=lambda e: self.bot.loop.create_task(self.play_next()))
-            channel = self.voice.channel
-            # Kanal mesajına embed atmak istiyoruz, örnek için simple print
-            # Burada şarkı bilgisi ve butonları atabiliriz.
+        channel = interaction.user.voice.channel
+        vc = interaction.guild.voice_client
+        if vc and vc.is_connected():
+            await vc.move_to(channel)
         else:
-            self.current = None
-            await self.leave()
+            await channel.connect()
 
-async def search_youtube(query):
-    loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch5:{query}", download=False))
-    return data['entries'] if 'entries' in data else [data]
+        await interaction.response.send_message(f"🎶 {channel.name} kanalına bağlandım.")
 
-@bot.tree.command(name="katıl", description="Botu ses kanalına çağırır")
-async def join(interaction: discord.Interaction):
-    if not interaction.user.voice or not interaction.user.voice.channel:
-        await interaction.response.send_message("Önce bir ses kanalına girmen gerekiyor.", ephemeral=True)
-        return
-    guild_id = interaction.guild.id
-    if guild_id not in queues:
-        queues[guild_id] = MusicPlayer(bot, guild_id)
-    player = queues[guild_id]
-    await player.join(interaction.user.voice.channel)
-    await interaction.response.send_message(f"✅ {interaction.user.voice.channel.name} kanalına katıldım.")
+    @app_commands.command(name="ayrıl", description="Ses kanalından ayrılır.")
+    async def leave(self, interaction: discord.Interaction):
+        vc = interaction.guild.voice_client
+        if vc and vc.is_connected():
+            await vc.disconnect()
+            await interaction.response.send_message("📴 Ses kanalından ayrıldım.")
+        else:
+            await interaction.response.send_message("❌ Bot herhangi bir ses kanalına bağlı değil.", ephemeral=True)
 
-@bot.tree.command(name="ayrıl", description="Botu ses kanalından çıkarır")
-async def leave(interaction: discord.Interaction):
-    guild_id = interaction.guild.id
-    if guild_id not in queues or not queues[guild_id].voice:
-        await interaction.response.send_message("Ben herhangi bir ses kanalında değilim.", ephemeral=True)
-        return
-    player = queues[guild_id]
-    await player.leave()
-    await interaction.response.send_message("✅ Ses kanalından ayrıldım.")
+    @app_commands.command(name="oynat", description="Şarkı arar ve oynatır.")
+    @app_commands.describe(sarki="Şarkı adı veya URL")
+    async def play(self, interaction: discord.Interaction, sarki: str):
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("🎧 Ses kanalında değilsin.", ephemeral=True)
+            return
 
-@bot.tree.command(name="oynat", description="Şarkı oynat")
-@app_commands.describe(sarki="Aranacak şarkı adı")
-@app_commands.autocomplete(sarki=lambda interaction, current: [app_commands.Choice(name=x, value=x) for x in ["Believer", "Shape of You", "Faded", "Despacito"] if current.lower() in x.lower()])
-async def play(interaction: discord.Interaction, sarki: str):
-    guild_id = interaction.guild.id
-    if guild_id not in queues:
-        queues[guild_id] = MusicPlayer(bot, guild_id)
-    player = queues[guild_id]
-    if not interaction.user.voice or not interaction.user.voice.channel:
-        await interaction.response.send_message("Önce bir ses kanalına girmen gerekiyor.", ephemeral=True)
-        return
-    await player.join(interaction.user.voice.channel)
+        await interaction.response.defer()
 
-    # Youtube araması yap
-    results = await search_youtube(sarki)
-    if not results:
-        await interaction.response.send_message("🎵 Şarkı bulunamadı.", ephemeral=True)
-        return
+        try:
+            info = await asyncio.to_thread(self.search_song, sarki)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Şarkı bulunamadı: {e}")
+            return
 
-    song = results[0]
-    url = song['url']
-    title = song['title']
-    uploader = song.get('uploader', 'Bilinmeyen')
-    duration = song.get('duration', 0)
-    duration_min = f"{duration//60}:{duration%60:02d}"
+        url = info['url'] if 'url' in info else info['webpage_url']
+        title = info.get('title', 'Bilinmeyen Şarkı')
+        duration = int(info.get('duration', 0))
+        uploader = info.get('uploader', 'Bilinmeyen')
 
-    # Kuyruğa ekle
-    player.queue.append({
-        'title': title,
-        'url': url,
-        'uploader': uploader,
-        'duration': duration_min
-    })
+        minutes, seconds = divmod(duration, 60)
+        duration_str = f"{minutes}:{seconds:02d}"
 
-    if not player.voice.is_playing() and not player.voice.is_paused():
-        player.current = player.queue.pop(0)
-        source = discord.FFmpegPCMAudio(player.current['url'], **ffmpeg_options)
-        player.voice.play(source, after=lambda e: bot.loop.create_task(player.play_next()))
+        channel = interaction.user.voice.channel
+        vc = interaction.guild.voice_client
+        if not vc or not vc.is_connected():
+            vc = await channel.connect()
+        elif vc.channel != channel:
+            await vc.move_to(channel)
 
-    embed = discord.Embed(title="🎶 Şarkı Çalınıyor", description=f"**{title}**\n\nSanatçı: {uploader}\nSüre: {duration_min}")
-    view = MusicControls(player)
-    await interaction.response.send_message(embed=embed, view=view)
+        # Çalma işlemi
+        def after_playing(error):
+            coro = interaction.channel.send(f"▶️ **{title}** bitti.")
+            fut = asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
+            try:
+                fut.result()
+            except:
+                pass
 
-bot.run("TOKEN")
+        source = discord.FFmpegPCMAudio(url, **self.FFMPEG_OPTIONS)
+        if vc.is_playing():
+            vc.stop()
+        vc.play(source, after=after_playing)
+
+        # Mesaj gönderelim
+        embed = discord.Embed(title="🎵 Şarkı Çalınıyor", description=f"**{title}**", color=0x1DB954)
+        embed.add_field(name="Sanatçı", value=uploader, inline=True)
+        embed.add_field(name="Süre", value=duration_str, inline=True)
+        embed.set_footer(text="Şarkı çalınıyor...")
+
+        # Durdur / Devam / Atla / Tekrarla Butonları
+        class MusicButtons(discord.ui.View):
+            def __init__(self, vc):
+                super().__init__(timeout=None)
+                self.vc = vc
+                self.loop = False
+
+            @discord.ui.button(label="Durdur", style=discord.ButtonStyle.red)
+            async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if not self.vc.is_playing():
+                    await interaction.response.send_message("Zaten oynatma yok.", ephemeral=True)
+                    return
+                self.vc.stop()
+                await interaction.response.send_message("⏹️ Şarkı durduruldu.", ephemeral=True)
+
+            @discord.ui.button(label="Devam", style=discord.ButtonStyle.green)
+            async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if self.vc.is_playing():
+                    await interaction.response.send_message("Zaten çalıyor.", ephemeral=True)
+                    return
+                self.vc.resume()
+                await interaction.response.send_message("▶️ Devam edildi.", ephemeral=True)
+
+            @discord.ui.button(label="Atla", style=discord.ButtonStyle.blurple)
+            async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if self.vc.is_playing():
+                    self.vc.stop()
+                    await interaction.response.send_message("⏭️ Şarkı atlandı.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("Şu anda şarkı çalmıyor.", ephemeral=True)
+
+            @discord.ui.button(label="Tekrarla", style=discord.ButtonStyle.gray)
+            async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                self.loop = not self.loop
+                durum = "aktif" if self.loop else "pasif"
+                await interaction.response.send_message(f"🔁 Tekrar mod {durum}.", ephemeral=True)
+
+        view = MusicButtons(vc)
+        self.now_playing[interaction.guild.id] = {"info": info, "loop": False}
+        await interaction.followup.send(embed=embed, view=view)
+
+
+async def setup(bot):
+    await bot.add_cog(Music(bot))
