@@ -196,21 +196,21 @@ class MusicCog(commands.Cog):
 
         await interaction.followup.send(f"🎶 Şarkı sıraya eklendi: **{title}**")
 
-    async def autocomplete_songs(self, interaction: discord.Interaction, current: str):
-        # Basit demo autocomplete
-        options = [
-            "Never Gonna Give You Up",
-            "Blinding Lights",
-            "Shape of You",
-            "Believer",
-            "Faded",
-            "Counting Stars",
-            "Someone Like You",
-        ]
-        return [
-            app_commands.Choice(name=opt, value=opt)
-            for opt in options if current.lower() in opt.lower()
-        ][:5]
+@app_commands.autocomplete(sorgu=autocomplete_songs)
+async def autocomplete_songs(self, interaction: discord.Interaction, current: str):
+    options = [
+        "Never Gonna Give You Up",
+        "Blinding Lights",
+        "Shape of You",
+        "Believer",
+        "Faded",
+        "Counting Stars",
+        "Someone Like You",
+    ]
+    return [
+        app_commands.Choice(name=opt, value=opt)
+        for opt in options if current.lower() in opt.lower()
+    ][:5]
 
 async def setup(bot):
     await bot.add_cog(MusicCog(bot))
