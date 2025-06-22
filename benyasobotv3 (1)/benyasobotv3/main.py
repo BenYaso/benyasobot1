@@ -4,6 +4,7 @@ import os
 import threading
 from flask import Flask
 import asyncio
+import subprocess
 
 # --- Keep Alive kısmı ---
 app = Flask('')
@@ -45,6 +46,14 @@ async def load_all_cogs():
                 print(f"{filename} yüklendi.")
             except Exception as e:
                 print(f"{filename} yüklenirken hata: {e}")
+
+@bot.command()
+async def ffmpegversion(ctx):
+    try:
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        await ctx.send(f"```{result.stdout[:1900]}```")
+    except Exception as e:
+        await ctx.send(f"❌ FFmpeg çalışmıyor: {e}")
 
 @bot.event
 async def on_ready():
