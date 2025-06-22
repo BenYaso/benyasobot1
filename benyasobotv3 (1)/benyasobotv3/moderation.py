@@ -217,7 +217,7 @@ class Moderation(commands.Cog):
 
         try:
             await interaction.response.send_message("📢 Duyuru başarıyla gönderildi!", ephemeral=True)
-            await interaction.channel.send(f"📣 {mesaj}")
+            await interaction.channel.send(f" {mesaj}")
         except Exception as e:
             await interaction.response.send_message(f"❌ Bir hata oluştu: {e}", ephemeral=True)
 
