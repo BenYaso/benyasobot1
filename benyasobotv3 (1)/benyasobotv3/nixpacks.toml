@@ -1,2 +1,2 @@
 [build]
-nixpkgs = ["ffmpeg", "python311", "pip", "git"]
+nixpkgs = ["ffmpeg"]
