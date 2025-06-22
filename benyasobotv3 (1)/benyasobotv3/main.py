@@ -20,19 +20,13 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- Discord Bot kısmı ---
 intents = discord.Intents.all()
 intents.voice_states = True  # Ses durumu izleme izni
 
 bot = commands.Bot(command_prefix="!", intents=intents, application_id=1385314588018475221)
 
 async def load_all_cogs():
-    # ./cogs klasöründeki tüm cogs'u yükle
-    cogs_folder = "./cogs"
-    if not os.path.exists(cogs_folder):
-        print("cogs klasörü bulunamadı.")
-        return
-    for filename in os.listdir(cogs_folder):
+    for filename in os.listdir("./cogs"):  # coglar klasördeyse bunu kullan
         if filename.endswith(".py"):
             try:
                 await bot.load_extension(f"cogs.{filename[:-3]}")
@@ -44,8 +38,10 @@ async def load_all_cogs():
 async def on_ready():
     print(f"{bot.user} olarak giriş yapıldı.")
     try:
-        synced = await bot.tree.sync()
-        print(f"{len(synced)} komut Discord'a senkronize edildi.")
+        # Test sunucusuna komutları yükle
+        test_guild = discord.Object(id=1385317817888411729)  
+        synced = await bot.tree.sync(guild=test_guild)
+        print(f"{len(synced)} komut test sunucusuna senkronize edildi.")
     except Exception as e:
         print(f"Slash komut sync hatası: {e}")
 
