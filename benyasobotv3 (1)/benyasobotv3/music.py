@@ -50,13 +50,13 @@ class MusicPlayer:
             self.playing_message = None
 
     async def play_next(self):
-        if not self.queue:
+        if not self.queue and not self.repeat:
             self.current = None
             if self.playing_message:
                 try:
                     await self.playing_message.edit(content="🎵 Sırada şarkı yok.", view=None)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"play_next edit mesaj hatası: {e}")
                 self.playing_message = None
 
             if self.voice_client:
@@ -64,7 +64,7 @@ class MusicPlayer:
                 self.voice_client = None
             return
 
-        if self.repeat and self.current is not None:
+        if self.repeat and self.current:
             song = self.current
         else:
             song = self.queue.pop(0)
@@ -94,15 +94,15 @@ class MusicPlayer:
         if self.playing_message:
             try:
                 await self.playing_message.edit(content=content, view=view)
-            except:
+            except Exception as e:
+                print(f"play_next mesaj güncelleme hatası: {e}")
                 self.playing_message = None
 
         if not self.playing_message:
-            channel = self.voice_client.channel
             try:
-                self.playing_message = await channel.send(content, view=view)
-            except:
-                pass
+                self.playing_message = await self.voice_client.channel.send(content, view=view)
+            except Exception as e:
+                print(f"play_next mesaj gönderme hatası: {e}")
 
     async def add_song(self, song):
         self.queue.append(song)
@@ -192,14 +192,17 @@ class MusicCog(commands.Cog):
 
     @app_commands.command(name="katıl", description="Ses kanalına katılır")
     async def join(self, interaction: discord.Interaction):
+        # İlk olarak defer yapıyoruz
+        await interaction.response.defer()
         success = await self.player.join(interaction)
         if success:
-            await interaction.response.send_message("✅ Ses kanalına katıldı!", ephemeral=True)
+            await interaction.followup.send("✅ Ses kanalına katıldı!", ephemeral=True)
 
     @app_commands.command(name="ayrıl", description="Ses kanalından ayrılır")
     async def leave(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         await self.player.leave()
-        await interaction.response.send_message("✅ Ses kanalından ayrıldı!", ephemeral=True)
+        await interaction.followup.send("✅ Ses kanalından ayrıldı!", ephemeral=True)
 
     @app_commands.command(name="oynat", description="Şarkı arat ve çal")
     @app_commands.describe(sorgu="Şarkı adı veya link")
@@ -213,10 +216,21 @@ class MusicCog(commands.Cog):
                 if "entries" in info:
                     info = info["entries"][0]
             except Exception as e:
-                await interaction.followup.send(f"❌ Şarkı bulunamadı: {e}")
+                await interaction.followup.send(f"❌ Şarkı bulunamadı: {e}", ephemeral=True)
                 return
 
         url = info.get("url")
+        # Bazı durumlarda "url" yerine "formats" listesinde stream url olabilir
+        if not url and "formats" in info:
+            for f in info["formats"]:
+                if f.get("acodec") != "none" and f.get("vcodec") == "none":
+                    url = f.get("url")
+                    break
+
+        if not url:
+            await interaction.followup.send("❌ Şarkı oynatmak için geçerli bir URL bulunamadı.", ephemeral=True)
+            return
+
         title = info.get("title", "Bilinmeyen")
         duration = info.get("duration", 0)
         artist = info.get("artist") or info.get("uploader") or "Bilinmeyen"
