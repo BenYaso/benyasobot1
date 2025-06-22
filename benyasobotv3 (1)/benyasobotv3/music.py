@@ -4,7 +4,6 @@ from discord import app_commands
 import yt_dlp
 import asyncio
 
-# Basit şarkı bilgisi classı
 class Song:
     def __init__(self, url, title, duration, artist):
         self.url = url
@@ -25,14 +24,14 @@ class MusicPlayer:
         self.playing_message = None
         self.repeat = False
 
-    async def join(self, ctx):
-        if ctx.voice_client:
-            self.voice_client = ctx.voice_client
+    async def join(self, interaction: discord.Interaction):
+        if interaction.guild.voice_client:
+            self.voice_client = interaction.guild.voice_client
             return
-        if not ctx.author.voice or not ctx.author.voice.channel:
-            await ctx.response.send_message("Lütfen bir ses kanalına katıl!", ephemeral=True)
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("Lütfen bir ses kanalına katıl!", ephemeral=True)
             return
-        channel = ctx.author.voice.channel
+        channel = interaction.user.voice.channel
         self.voice_client = await channel.connect()
 
     async def leave(self):
@@ -73,7 +72,8 @@ class MusicPlayer:
 
         content = (
             f"🎶 **Şarkı çalınıyor:** {self.current.title}\n"
-            f"Sanatçı: {self.current.artist}  |  Süre: {self.current.formatted_duration()}"
+            f"Sanatçı: {self.current.artist}  |  Süre: {self.current.formatted_duration()}\n"
+            f"Şarkı çalınıyor..."
         )
 
         view = ControlView(self)
@@ -89,7 +89,7 @@ class MusicPlayer:
             except:
                 pass
 
-    async def add_song(self, song):
+    async def add_song(self, song: Song):
         self.queue.append(song)
         if not self.voice_client or not self.voice_client.is_playing():
             await self.play_next()
@@ -175,7 +175,6 @@ class MusicCog(commands.Cog):
     @app_commands.autocomplete(sorgu="autocomplete_songs")
     async def play(self, interaction: discord.Interaction, sorgu: str):
         await interaction.response.defer()
-        # YouTube araması
         with yt_dlp.YoutubeDL(self.ytdlp_opts) as ytdl:
             try:
                 info = ytdl.extract_info(sorgu, download=False)
@@ -185,7 +184,7 @@ class MusicCog(commands.Cog):
                 await interaction.followup.send(f"❌ Şarkı bulunamadı: {e}")
                 return
 
-        url = info["url"]
+        url = info.get("url") or info.get("formats")[0]["url"]
         title = info.get("title", "Bilinmeyen")
         duration = info.get("duration", 0)
         artist = info.get("artist") or info.get("uploader") or "Bilinmeyen"
@@ -196,21 +195,29 @@ class MusicCog(commands.Cog):
 
         await interaction.followup.send(f"🎶 Şarkı sıraya eklendi: **{title}**")
 
-@app_commands.autocomplete(sorgu=autocomplete_songs)
-async def autocomplete_songs(self, interaction: discord.Interaction, current: str):
-    options = [
-        "Never Gonna Give You Up",
-        "Blinding Lights",
-        "Shape of You",
-        "Believer",
-        "Faded",
-        "Counting Stars",
-        "Someone Like You",
-    ]
-    return [
-        app_commands.Choice(name=opt, value=opt)
-        for opt in options if current.lower() in opt.lower()
-    ][:5]
+    async def autocomplete_songs(self, interaction: discord.Interaction, current: str):
+        options = [
+            "Never Gonna Give You Up",
+            "Blinding Lights",
+            "Shape of You",
+            "Believer",
+            "Faded",
+            "Counting Stars",
+            "Someone Like You",
+        ]
+        return [
+            app_commands.Choice(name=opt, value=opt)
+            for opt in options if current.lower() in opt.lower()
+        ][:5]
+
+    # Bu küçük hile: Komutları bot a kaydederken autocomplete fonksiyonunu da manuel olarak ekleyelim
+    async def cog_load(self):
+        self.bot.tree.add_command(self.join)
+        self.bot.tree.add_command(self.leave)
+        play_cmd = self.play
+        play_cmd.autocomplete_callbacks = { "sorgu": self.autocomplete_songs }
+        self.bot.tree.add_command(play_cmd)
+        await self.bot.tree.sync()
 
 async def setup(bot):
     await bot.add_cog(MusicCog(bot))
