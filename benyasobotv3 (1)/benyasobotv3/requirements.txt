@@ -2,3 +2,5 @@ yt-dlp
 discord.py
 flask
 feedparser
+python-dotenv
+
