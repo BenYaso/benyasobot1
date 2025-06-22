@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 import threading
 from flask import Flask
+import asyncio
 
 # --- Keep Alive kısmı ---
 app = Flask('')
@@ -25,10 +26,29 @@ intents.voice_states = True  # Ses durumu izleme izni
 
 bot = commands.Bot(command_prefix="!", intents=intents, application_id=1385314588018475221)
 
+async def load_all_cogs():
+    for filename in os.listdir("./"):
+        if filename.endswith(".py") and filename != "main.py":
+            try:
+                await bot.load_extension(filename[:-3])
+                print(f"{filename} yüklendi.")
+            except Exception as e:
+                print(f"{filename} yüklenirken hata: {e}")
+
 @bot.event
 async def on_ready():
     print(f"{bot.user} olarak giriş yapıldı.")
+    try:
+        synced = await bot.tree.sync()
+        print(f"{len(synced)} komut Discord'a senkronize edildi.")
+    except Exception as e:
+        print(f"Slash komut sync hatası: {e}")
+
+async def main():
+    keep_alive()  # Keep alive web server başlatılır
+    async with bot:
+        await load_all_cogs()
+        await bot.start(os.getenv("TOKEN"))
 
 if __name__ == "__main__":
-    keep_alive()  # Web server'ı başlat
-    bot.run(os.getenv("TOKEN"))
+    asyncio.run(main())
