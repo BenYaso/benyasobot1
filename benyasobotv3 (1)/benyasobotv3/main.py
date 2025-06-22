@@ -28,16 +28,6 @@ intents.voice_states = True  # Ses durumu izleme izni
 bot = commands.Bot(command_prefix="!", intents=intents, application_id=1385314588018475221)
 
 async def load_all_cogs():
-    # Eğer coglar cogs klasöründeyse:
-    # cog_folder = "./cogs"
-    # for filename in os.listdir(cog_folder):
-    #     if filename.endswith(".py"):
-    #         try:
-    #             await bot.load_extension(f"cogs.{filename[:-3]}")
-    #             print(f"cogs/{filename} yüklendi.")
-    #         except Exception as e:
-    #             print(f"cogs/{filename} yüklenirken hata: {e}")
-
     # Eğer coglar ana dizindeyse:
     for filename in os.listdir("."):
         if filename.endswith(".py") and filename not in ("main.py", "keep_alive.py"):
@@ -47,13 +37,14 @@ async def load_all_cogs():
             except Exception as e:
                 print(f"{filename} yüklenirken hata: {e}")
 
-@bot.command()
-async def ffmpegversion(ctx):
+# Slash komut olarak ffmpegversion komutu
+@bot.tree.command(name="ffmpegversion", description="FFmpeg yüklü mü kontrol et")
+async def ffmpegversion(interaction: discord.Interaction):
     try:
         result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        await ctx.send(f"```{result.stdout[:1900]}```")
+        await interaction.response.send_message(f"```\n{result.stdout[:1900]}```", ephemeral=True)
     except Exception as e:
-        await ctx.send(f"❌ FFmpeg çalışmıyor: {e}")
+        await interaction.response.send_message(f"❌ FFmpeg çalışmıyor:\n{e}", ephemeral=True)
 
 @bot.event
 async def on_ready():
