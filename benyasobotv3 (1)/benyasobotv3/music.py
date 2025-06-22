@@ -25,14 +25,21 @@ class MusicPlayer:
         self.repeat = False
 
     async def join(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("Bu komut sadece sunucularda kullanılabilir.", ephemeral=True)
+            return False
+
         if interaction.guild.voice_client:
             self.voice_client = interaction.guild.voice_client
-            return
+            return True
+
         if not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.response.send_message("Lütfen bir ses kanalına katıl!", ephemeral=True)
-            return
+            return False
+
         channel = interaction.user.voice.channel
         self.voice_client = await channel.connect()
+        return True
 
     async def leave(self):
         if self.voice_client:
@@ -50,13 +57,20 @@ class MusicPlayer:
                     await self.playing_message.edit(content="🎵 Sırada şarkı yok.", view=None)
                 except:
                     pass
+                self.playing_message = None
+
             if self.voice_client:
                 await self.voice_client.disconnect()
                 self.voice_client = None
             return
 
-        self.current = self.queue.pop(0)
-        source = discord.FFmpegPCMAudio(self.current.url)
+        if self.repeat and self.current is not None:
+            song = self.current
+        else:
+            song = self.queue.pop(0)
+            self.current = song
+
+        source = discord.FFmpegPCMAudio(song.url)
 
         def after_playing(error):
             fut = asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop)
@@ -71,9 +85,9 @@ class MusicPlayer:
         self.voice_client.play(source, after=after_playing)
 
         content = (
-            f"🎶 **Şarkı çalınıyor:** {self.current.title}\n"
-            f"Sanatçı: {self.current.artist}  |  Süre: {self.current.formatted_duration()}\n"
-            f"Şarkı çalınıyor..."
+            f"🎶 **Şarkı çalınıyor:** {song.title}\n"
+            f"Sanatçı: {song.artist}  |  Süre: {song.formatted_duration()}\n\n"
+            f"**Şarkı çalınıyor...**"
         )
 
         view = ControlView(self)
@@ -82,6 +96,7 @@ class MusicPlayer:
                 await self.playing_message.edit(content=content, view=view)
             except:
                 self.playing_message = None
+
         if not self.playing_message:
             channel = self.voice_client.channel
             try:
@@ -89,7 +104,7 @@ class MusicPlayer:
             except:
                 pass
 
-    async def add_song(self, song: Song):
+    async def add_song(self, song):
         self.queue.append(song)
         if not self.voice_client or not self.voice_client.is_playing():
             await self.play_next()
@@ -160,41 +175,6 @@ class MusicCog(commands.Cog):
             "default_search": "ytsearch",
         }
 
-    @app_commands.command(name="katıl", description="Ses kanalına katılır")
-    async def join(self, interaction: discord.Interaction):
-        await self.player.join(interaction)
-        await interaction.response.send_message("✅ Ses kanalına katıldı!", ephemeral=True)
-
-    @app_commands.command(name="ayrıl", description="Ses kanalından ayrılır")
-    async def leave(self, interaction: discord.Interaction):
-        await self.player.leave()
-        await interaction.response.send_message("✅ Ses kanalından ayrıldı!", ephemeral=True)
-
-    @app_commands.command(name="oynat", description="Şarkı arat ve çal")
-    @app_commands.describe(sorgu="Şarkı adı veya link")
-    @app_commands.autocomplete(sorgu="autocomplete_songs")
-    async def play(self, interaction: discord.Interaction, sorgu: str):
-        await interaction.response.defer()
-        with yt_dlp.YoutubeDL(self.ytdlp_opts) as ytdl:
-            try:
-                info = ytdl.extract_info(sorgu, download=False)
-                if "entries" in info:
-                    info = info["entries"][0]
-            except Exception as e:
-                await interaction.followup.send(f"❌ Şarkı bulunamadı: {e}")
-                return
-
-        url = info.get("url") or info.get("formats")[0]["url"]
-        title = info.get("title", "Bilinmeyen")
-        duration = info.get("duration", 0)
-        artist = info.get("artist") or info.get("uploader") or "Bilinmeyen"
-
-        song = Song(url, title, duration, artist)
-
-        await self.player.add_song(song)
-
-        await interaction.followup.send(f"🎶 Şarkı sıraya eklendi: **{title}**")
-
     async def autocomplete_songs(self, interaction: discord.Interaction, current: str):
         options = [
             "Never Gonna Give You Up",
@@ -210,14 +190,42 @@ class MusicCog(commands.Cog):
             for opt in options if current.lower() in opt.lower()
         ][:5]
 
-    # Bu küçük hile: Komutları bot a kaydederken autocomplete fonksiyonunu da manuel olarak ekleyelim
-    async def cog_load(self):
-        self.bot.tree.add_command(self.join)
-        self.bot.tree.add_command(self.leave)
-        play_cmd = self.play
-        play_cmd.autocomplete_callbacks = { "sorgu": self.autocomplete_songs }
-        self.bot.tree.add_command(play_cmd)
-        await self.bot.tree.sync()
+    @app_commands.command(name="katıl", description="Ses kanalına katılır")
+    async def join(self, interaction: discord.Interaction):
+        success = await self.player.join(interaction)
+        if success:
+            await interaction.response.send_message("✅ Ses kanalına katıldı!", ephemeral=True)
+
+    @app_commands.command(name="ayrıl", description="Ses kanalından ayrılır")
+    async def leave(self, interaction: discord.Interaction):
+        await self.player.leave()
+        await interaction.response.send_message("✅ Ses kanalından ayrıldı!", ephemeral=True)
+
+    @app_commands.command(name="oynat", description="Şarkı arat ve çal")
+    @app_commands.describe(sorgu="Şarkı adı veya link")
+    @app_commands.autocomplete(sorgu=autocomplete_songs)
+    async def play(self, interaction: discord.Interaction, sorgu: str):
+        await interaction.response.defer()
+
+        with yt_dlp.YoutubeDL(self.ytdlp_opts) as ytdl:
+            try:
+                info = ytdl.extract_info(sorgu, download=False)
+                if "entries" in info:
+                    info = info["entries"][0]
+            except Exception as e:
+                await interaction.followup.send(f"❌ Şarkı bulunamadı: {e}")
+                return
+
+        url = info.get("url")
+        title = info.get("title", "Bilinmeyen")
+        duration = info.get("duration", 0)
+        artist = info.get("artist") or info.get("uploader") or "Bilinmeyen"
+
+        song = Song(url, title, duration, artist)
+
+        await self.player.add_song(song)
+
+        await interaction.followup.send(f"🎶 Şarkı sıraya eklendi: **{title}**")
 
 async def setup(bot):
     await bot.add_cog(MusicCog(bot))
