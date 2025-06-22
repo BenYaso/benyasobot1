@@ -37,7 +37,7 @@ async def main():
     threading.Thread(target=keepalive.run, daemon=True).start()
     async with bot:
         await load_all_cogs()  # music.py dahil tüm .py dosyalarını yükler
-        await bot.start("MTM4NTMxNDU4ODAxODQ3NTIyMQ.G9YR6l.UzkOGTnkU_r3n9dGIbYtLyRfjNlN2-DyNRXTp0")  # Token'ı buraya koy, kimseyle paylaşma!
+        bot.run(os.getenv("TOKEN"))  # Token'ı buraya koy, kimseyle paylaşma!
 
 if __name__ == "__main__":
     asyncio.run(main())
