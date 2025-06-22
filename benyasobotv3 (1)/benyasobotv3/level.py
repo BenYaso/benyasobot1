@@ -116,6 +116,10 @@ class LevelSystem(commands.Cog):
             if role_name:
                 role = discord.utils.get(message.guild.roles, name=role_name)
                 if role:
+                    # İşte eski level rollerini kaldırma kısmı burası:
+                    for r in message.author.roles:
+                        if r.name in self.level_roles.values() and r != role:
+                            await message.author.remove_roles(r)
                     await message.author.add_roles(role)
                     await message.channel.send(f"✅ {role_name} rolünü kazandın!")
 
