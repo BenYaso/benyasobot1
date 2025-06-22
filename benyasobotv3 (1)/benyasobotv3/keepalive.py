@@ -12,7 +12,9 @@ def run():
 
 def keep_alive():
     t = threading.Thread(target=run)
+    t.daemon = True  # Thread’in bot kapanınca da kapanması için
     t.start()
 
+# Eğer bu dosyayı bir cog olarak kullanacaksan:
 async def setup(bot):
     keep_alive()
